@@ -1,0 +1,6 @@
+<resources>
+    <style name="Theme.Flix" parent="android:Theme.Material.NoActionBar">
+        <item name="android:windowBackground">#141414</item>
+        <item name="android:statusBarColor">#141414</item>
+    </style>
+</resources>
