@@ -8,6 +8,8 @@
     <application
         android:name=".FlixApp"
         android:label="Anibix"
+        android:icon="@mipmap/ic_launcher"
+        android:roundIcon="@mipmap/ic_launcher_round"
         android:usesCleartextTraffic="true"
         android:theme="@style/Theme.Flix">
         <activity android:name=".MainActivity" android:exported="true"
