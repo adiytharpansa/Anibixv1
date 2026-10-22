@@ -19,25 +19,38 @@ class TorrentStreamServer(
             Response.Status.NOT_FOUND, MIME_PLAINTEXT, "not found"
         )
         val total = src.info.files().fileSize(src.fileIndex)
+        if (total <= 0) return newFixedLengthResponse(
+            Response.Status.NOT_FOUND, MIME_PLAINTEXT, "empty"
+        )
         val range = session.headers["range"]
 
         var start = 0L
         var end = total - 1
         if (range != null && range.startsWith("bytes=")) {
             val parts = range.removePrefix("bytes=").split("-")
-            start = parts[0].toLongOrNull() ?: 0L
-            end = parts.getOrNull(1)?.toLongOrNull() ?: (total - 1)
+            start = (parts[0].toLongOrNull() ?: 0L).coerceIn(0L, total - 1)
+            val requestedEnd = parts.getOrNull(1)?.toLongOrNull() ?: (total - 1)
+            end = requestedEnd.coerceIn(start, total - 1)   // clamp: jangan lewati ukuran file
         }
         val length = end - start + 1
         val stream = PieceAwareStream(src, start, length)
 
         val resp = newFixedLengthResponse(
             if (range != null) Response.Status.PARTIAL_CONTENT else Response.Status.OK,
-            "video/mp4", stream, length
+            mimeFor(src.info.files().filePath(src.fileIndex)), stream, length
         )
         resp.addHeader("Accept-Ranges", "bytes")
         if (range != null) resp.addHeader("Content-Range", "bytes $start-$end/$total")
         return resp
+    }
+
+    private fun mimeFor(path: String): String = when (path.substringAfterLast('.', "").lowercase()) {
+        "mkv" -> "video/x-matroska"
+        "webm" -> "video/webm"
+        "avi" -> "video/x-msvideo"
+        "mov" -> "video/quicktime"
+        "mp4", "m4v" -> "video/mp4"
+        else -> "video/mp4"
     }
 }
 

@@ -1,14 +1,14 @@
 package com.anibix.app
 
 import android.app.Application
-import com.anibix.app.data.CatalogRepository
-import com.anibix.app.data.FakeCatalogRepository
 import com.anibix.app.torrent.TorrentEngine
+import dagger.hilt.android.HiltAndroidApp
+import javax.inject.Inject
 
+@HiltAndroidApp
 class FlixApp : Application() {
-    // Ganti dengan DI (Hilt/Koin) kalau proyek sudah membesar
-    val catalog: CatalogRepository by lazy { FakeCatalogRepository() }
-    val engine: TorrentEngine by lazy { TorrentEngine(this) }
+    @Inject
+    lateinit var engine: TorrentEngine
 
     override fun onCreate() {
         super.onCreate()
