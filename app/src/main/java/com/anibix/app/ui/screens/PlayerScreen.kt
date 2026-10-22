@@ -184,13 +184,11 @@ fun PlayerScreen(
 
     // Status PiP untuk menyembunyikan kontrol saat masuk PiP.
     var inPip by remember { mutableStateOf(false) }
-    DisposableEffect(activity) {
-        val componentActivity = activity as? ComponentActivity
-        val listener = androidx.core.util.Consumer<androidx.activity.PictureInPictureModeChangedInfo> { info ->
-            inPip = info.isInPictureInPictureMode
+    LaunchedEffect(activity) {
+        while (isActive) {
+            inPip = activity?.isInPictureInPictureMode == true
+            delay(500)
         }
-        componentActivity?.addOnPictureInPictureModeChangedListener(listener)
-        onDispose { componentActivity?.removeOnPictureInPictureModeChangedListener(listener) }
     }
 
     Box(Modifier.fillMaxSize().background(Color.Black)) {

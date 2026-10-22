@@ -12,7 +12,7 @@ sealed interface AppResult<out T> {
 
     fun errorOrNull(): AppError? = (this as? Failure)?.error
 
-    inline fun <R> map(transform: (T) -> R): AppResult<R> = when (this) {
+    fun <R> map(transform: (T) -> R): AppResult<R> = when (this) {
         is Success -> Success(transform(data))
         is Failure -> this
     }

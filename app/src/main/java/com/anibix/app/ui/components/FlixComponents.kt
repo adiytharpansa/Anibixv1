@@ -1,5 +1,6 @@
 package com.anibix.app.ui.components
 
+import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
