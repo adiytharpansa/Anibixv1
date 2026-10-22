@@ -72,21 +72,30 @@ class TorrentEngine(private val ctx: Context) {
                 if (sequential) existing.handle.setFlags(TorrentFlags.SEQUENTIAL_DOWNLOAD)
                 return@withContext existing
             }
-            val data = session.fetchMagnet(magnet, 30, downloadDir)
+            val data = session.fetchMagnet(magnet, 30)
                 ?: error("Gagal mengambil metadata torrent (timeout)")
             val ti = TorrentInfo.bdecode(data)
 
-            val flags = if (sequential) TorrentFlags.SEQUENTIAL_DOWNLOAD else TorrentFlags.AUTO_MANAGED
-            session.download(ti, downloadDir, null, null, null, flags)
-            val handle = session.find(ti.infoHash()) ?: error("Handle torrent tidak ditemukan")
+            session.download(ti, downloadDir, null, null, null)
+            // download() di jlibtorrent 1.2.0.18 berjalan async (async_add_torrent)
+            // dan tidak menerima flags; tunggu handle muncul, lalu pasang
+            // SEQUENTIAL_DOWNLOAD lewat handle.setFlags().
+            var handle: TorrentHandle? = null
+            var tries = 0
+            while (handle == null && tries < 40) {
+                handle = session.find(ti.infoHash())
+                if (handle == null) { Thread.sleep(250); tries++ }
+            }
+            val found = handle ?: error("Handle torrent tidak ditemukan")
+            if (sequential) found.setFlags(TorrentFlags.SEQUENTIAL_DOWNLOAD)
 
             // Pilih file video terbesar, abaikan sisanya
             val files = ti.files()
             val idx = (0 until files.numFiles()).maxByOrNull { files.fileSize(it) } ?: 0
             for (i in 0 until files.numFiles()) {
-                handle.filePriority(i, if (i == idx) Priority.DEFAULT else Priority.IGNORE)
+                found.filePriority(i, if (i == idx) Priority.NORMAL else Priority.IGNORE)
             }
-            val src = StreamSource(handle, ti, idx, File(downloadDir, files.filePath(idx)))
+            val src = StreamSource(found, ti, idx, File(downloadDir, files.filePath(idx)))
             sources[id] = src
             titles[id] = title
             src
