@@ -1,21 +1,30 @@
 package com.anibix.app.ui.screens
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Bookmark
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.outlined.BookmarkBorder
 import androidx.compose.material.icons.outlined.Download
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import com.anibix.app.data.Title
@@ -26,9 +35,10 @@ import com.anibix.app.ui.components.meta
 import com.anibix.app.ui.theme.FlixBlack
 import com.anibix.app.ui.theme.FlixMuted
 import com.anibix.app.ui.theme.FlixRed
+import com.anibix.app.ui.theme.FlixSurface
 
 @Composable
-fun DetailScreen(vm: MainViewModel, id: String, onPlay: (String) -> Unit, onBack: () -> Unit) {
+fun DetailScreen(vm: MainViewModel, id: String, onPlay: (String, Int) -> Unit, onBack: () -> Unit) {
     var title by remember { mutableStateOf<Title?>(null) }
     val downloads by vm.downloads.collectAsState()
     LaunchedEffect(id) { title = vm.title(id) }
@@ -40,7 +50,10 @@ fun DetailScreen(vm: MainViewModel, id: String, onPlay: (String) -> Unit, onBack
         }
         return
     }
+    val bookmarked by vm.isBookmarked(t.id).collectAsState(initial = false)
     val dl = downloads.firstOrNull { it.id == t.id }
+    val playlist = t.playlist()
+    val isSeries = playlist.size > 1
 
     Box(Modifier.fillMaxSize().background(FlixBlack)) {
         Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
@@ -65,7 +78,12 @@ fun DetailScreen(vm: MainViewModel, id: String, onPlay: (String) -> Unit, onBack
                     verticalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
                     Text(t.name, style = MaterialTheme.typography.displaySmall)
-                    Text(t.meta(), style = MaterialTheme.typography.bodySmall, color = FlixMuted)
+                    val metaParts = listOfNotNull(
+                        t.meta().takeIf { it.isNotEmpty() },
+                        if (t.rating > 0) "★ ${"%.1f".format(t.rating)}" else null,
+                        if (isSeries) "${playlist.size} episode" else null
+                    )
+                    Text(metaParts.joinToString("  •  "), style = MaterialTheme.typography.bodySmall, color = FlixMuted)
                 }
             }
 
@@ -73,26 +91,61 @@ fun DetailScreen(vm: MainViewModel, id: String, onPlay: (String) -> Unit, onBack
                 Modifier.padding(horizontal = 16.dp, vertical = 16.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
-                FlixButton("Putar", Icons.Default.PlayArrow, { onPlay(t.id) }, Modifier.fillMaxWidth())
-                when {
-                    dl == null -> FlixButton(
-                        "Download", Icons.Outlined.Download, { vm.download(t) },
-                        Modifier.fillMaxWidth(), primary = false
-                    )
-                    dl.finished -> FlixButton(
-                        "Sudah diunduh", Icons.Default.Check, {},
-                        Modifier.fillMaxWidth(), primary = false
-                    )
-                    else -> FlixButton(
-                        "Mengunduh ${(dl.progress * 100).toInt()}%", Icons.Outlined.Download, {},
-                        Modifier.fillMaxWidth(), primary = false
+                FlixButton("Putar", Icons.Default.PlayArrow, { onPlay(t.id, playlist.first().number) }, Modifier.fillMaxWidth())
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    when {
+                        dl == null -> FlixButton(
+                            "Download", Icons.Outlined.Download, { vm.download(t) },
+                            Modifier.weight(1f), primary = false
+                        )
+                        dl.finished -> FlixButton(
+                            "Sudah diunduh", Icons.Default.Check, {},
+                            Modifier.weight(1f), primary = false
+                        )
+                        else -> FlixButton(
+                            "Mengunduh ${(dl.progress * 100).toInt()}%", Icons.Outlined.Download, {},
+                            Modifier.weight(1f), primary = false
+                        )
+                    }
+                    FlixButton(
+                        if (bookmarked) "Di Daftarku" else "Daftarku",
+                        if (bookmarked) Icons.Default.Bookmark else Icons.Outlined.BookmarkBorder,
+                        { vm.toggleBookmark(t, bookmarked) },
+                        Modifier.weight(1f), primary = false
                     )
                 }
-                Text(
-                    t.synopsis, style = MaterialTheme.typography.bodyMedium,
-                    color = Color.White.copy(alpha = 0.85f),
-                    modifier = Modifier.padding(top = 6.dp)
-                )
+                if (t.synopsis.isNotBlank()) {
+                    Text(
+                        t.synopsis, style = MaterialTheme.typography.bodyMedium,
+                        color = Color.White.copy(alpha = 0.85f),
+                        modifier = Modifier.padding(top = 6.dp)
+                    )
+                }
+
+                if (isSeries) {
+                    Spacer(Modifier.height(10.dp))
+                    Text("Episode", style = MaterialTheme.typography.titleMedium)
+                    // Grid episode dalam kolom scroll induk: pakai grid tinggi tetap per baris.
+                    val rows = (playlist.size + 3) / 4
+                    LazyVerticalGrid(
+                        columns = GridCells.Fixed(4),
+                        modifier = Modifier.fillMaxWidth().height((rows * 64).dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                        userScrollEnabled = false
+                    ) {
+                        items(playlist, key = { it.number }) { ep ->
+                            Box(
+                                Modifier.clip(RoundedCornerShape(6.dp)).background(FlixSurface)
+                                    .clickable { onPlay(t.id, ep.number) }
+                                    .padding(vertical = 14.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text("${ep.number}", style = MaterialTheme.typography.titleMedium, textAlign = TextAlign.Center)
+                            }
+                        }
+                    }
+                }
             }
             Spacer(Modifier.navigationBarsPadding().height(16.dp))
         }

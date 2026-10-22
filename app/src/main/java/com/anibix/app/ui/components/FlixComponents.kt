@@ -11,6 +11,13 @@ import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.ui.text.style.TextOverflow
 import com.anibix.app.ui.theme.FlixMuted
+import com.anibix.app.ui.theme.FlixSurfaceHigh
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.size
@@ -132,5 +139,44 @@ fun AnimeGridCard(t: Title, onClick: () -> Unit, modifier: Modifier = Modifier) 
         Text(t.name, style = MaterialTheme.typography.bodyMedium, maxLines = 2, overflow = TextOverflow.Ellipsis)
         val meta = t.meta()
         if (meta.isNotEmpty()) Text(meta, style = MaterialTheme.typography.bodySmall, color = FlixMuted, maxLines = 1)
+    }
+}
+
+/** Kotak placeholder berkilau untuk keadaan memuat (skeleton). */
+@Composable
+fun ShimmerBox(modifier: Modifier = Modifier, shape: androidx.compose.ui.graphics.Shape = RoundedCornerShape(6.dp)) {
+    val transition = androidx.compose.animation.core.rememberInfiniteTransition(label = "shimmer")
+    val shift by transition.animateFloat(
+        initialValue = 0f, targetValue = 1f,
+        animationSpec = androidx.compose.animation.core.infiniteRepeatable(
+            androidx.compose.animation.core.tween(1200, easing = androidx.compose.animation.core.LinearEasing),
+            androidx.compose.animation.core.RepeatMode.Restart
+        ),
+        label = "shimmerShift"
+    )
+    val brush = Brush.linearGradient(
+        colors = listOf(FlixSurface, FlixSurfaceHigh, FlixSurface),
+        start = Offset(shift * 600f - 300f, 0f),
+        end = Offset(shift * 600f, 0f)
+    )
+    Box(modifier.clip(shape).background(brush))
+}
+
+/** Keadaan error layar penuh dengan tombol coba lagi. */
+@Composable
+fun ErrorState(message: String, onRetry: () -> Unit, modifier: Modifier = Modifier) {
+    Column(
+        modifier.fillMaxSize().padding(horizontal = 32.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center
+    ) {
+        Text("Ada masalah", style = MaterialTheme.typography.titleMedium)
+        Spacer(Modifier.height(8.dp))
+        Text(message, style = MaterialTheme.typography.bodyMedium, color = FlixMuted, textAlign = TextAlign.Center)
+        Spacer(Modifier.height(16.dp))
+        Button(
+            onClick = onRetry,
+            colors = ButtonDefaults.buttonColors(containerColor = Color.White, contentColor = Color.Black)
+        ) { Text("Coba lagi", style = MaterialTheme.typography.labelLarge) }
     }
 }

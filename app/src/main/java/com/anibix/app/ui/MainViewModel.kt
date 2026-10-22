@@ -1,54 +1,174 @@
 package com.anibix.app.ui
 
 import androidx.lifecycle.ViewModel
-import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
-import com.anibix.app.FlixApp
+import com.anibix.app.core.AppResult
+import com.anibix.app.data.CatalogRepository
 import com.anibix.app.data.Category
+import com.anibix.app.data.Episode
 import com.anibix.app.data.Title
+import com.anibix.app.data.local.BookmarkDao
+import com.anibix.app.data.local.BookmarkEntity
+import com.anibix.app.data.local.DownloadQueueDao
+import com.anibix.app.data.local.DownloadQueueEntity
+import com.anibix.app.data.local.WatchHistoryDao
+import com.anibix.app.data.local.WatchHistoryEntity
+import com.anibix.app.data.settings.PlayerSettings
+import com.anibix.app.data.settings.SettingsRepository
+import com.anibix.app.data.settings.TorrentSettings
+import com.anibix.app.torrent.TorrentEngine
+import com.anibix.app.torrent.TorrentState
+import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import javax.inject.Inject
 
-class MainViewModel(private val app: FlixApp) : ViewModel() {
-    private val _categories = MutableStateFlow<List<Category>>(emptyList())
-    val categories = _categories.asStateFlow()
+/** Keadaan layar Beranda (UDF): Loading → Content / Error, selalu satu arah. */
+sealed interface HomeUiState {
+    data object Loading : HomeUiState
+    data class Error(val message: String) : HomeUiState
+    data class Content(
+        val categories: List<Category>,
+        val continueWatching: List<WatchHistoryEntity>,
+    ) : HomeUiState
+}
+
+@HiltViewModel
+class MainViewModel @Inject constructor(
+    private val repo: CatalogRepository,
+    private val engine: TorrentEngine,
+    private val historyDao: WatchHistoryDao,
+    private val bookmarkDao: BookmarkDao,
+    private val downloadQueueDao: DownloadQueueDao,
+    val settingsRepo: SettingsRepository,
+) : ViewModel() {
+
+    private val _home = MutableStateFlow<HomeUiState>(HomeUiState.Loading)
+    val homeState: StateFlow<HomeUiState> = _home.asStateFlow()
+
     private val _titles = MutableStateFlow<List<Title>>(emptyList())
-    val titles = _titles.asStateFlow()
-    val downloads = app.engine.states
+    val titles: StateFlow<List<Title>> = _titles.asStateFlow()
+
+    val downloads: StateFlow<List<TorrentState>> = engine.states
+    val downloadQueue: StateFlow<List<DownloadQueueEntity>> =
+        downloadQueueDao.observeAll().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+    val bookmarks: StateFlow<List<BookmarkEntity>> =
+        bookmarkDao.observeAll().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+    val continueWatching: StateFlow<List<WatchHistoryEntity>> =
+        historyDao.observeRecent().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    val torrentSettings: StateFlow<TorrentSettings> =
+        settingsRepo.torrentSettings.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), TorrentSettings())
+    val playerSettings: StateFlow<PlayerSettings> =
+        settingsRepo.playerSettings.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), PlayerSettings())
 
     private val _streamUrl = MutableStateFlow<String?>(null)
-    val streamUrl = _streamUrl.asStateFlow()
-    private val _error = MutableStateFlow<String?>(null)
-    val error = _error.asStateFlow()
+    val streamUrl: StateFlow<String?> = _streamUrl.asStateFlow()
+    private val _streamError = MutableStateFlow<String?>(null)
+    val streamError: StateFlow<String?> = _streamError.asStateFlow()
 
     init {
+        loadHome()
+        resumeQueuedDownloads()
+    }
+
+    fun loadHome() {
+        _home.value = HomeUiState.Loading
         viewModelScope.launch {
-            _categories.value = app.catalog.categories()
-            _titles.value = app.catalog.allTitles()
+            runCatching { repo.categories() }
+                .onSuccess { cats ->
+                    _titles.value = cats.flatMap { it.titles }.distinctBy { it.id }
+                    _home.value = if (cats.isEmpty()) {
+                        HomeUiState.Error("Katalog kosong dan tidak ada cache. Periksa koneksi lalu coba lagi.")
+                    } else {
+                        HomeUiState.Content(cats, continueWatching.value)
+                    }
+                }
+                .onFailure { _home.value = HomeUiState.Error(it.message ?: "Gagal memuat katalog") }
         }
     }
 
-    suspend fun title(id: String) = app.catalog.title(id)
+    suspend fun title(id: String): Title? = repo.title(id)
 
-    fun stream(t: Title) = viewModelScope.launch {
-        _streamUrl.value = null; _error.value = null
-        runCatching { app.engine.startStream(t.id, t.name, t.magnet) }
-            .onSuccess { _streamUrl.value = it }
-            .onFailure { _error.value = it.message }
+    fun isBookmarked(id: String): Flow<Boolean> = bookmarkDao.observeIsBookmarked(id)
+
+    fun toggleBookmark(t: Title, currently: Boolean) {
+        viewModelScope.launch {
+            if (currently) bookmarkDao.remove(t.id)
+            else bookmarkDao.add(BookmarkEntity(t.id, t.name, t.posterUrl, System.currentTimeMillis()))
+        }
     }
 
-    fun download(t: Title) = viewModelScope.launch {
-        runCatching { app.engine.startDownload(t.id, t.name, t.magnet) }
-            .onFailure { _error.value = it.message }
+    /** Minta URL stream untuk satu episode; hasilnya di [streamUrl]/[streamError]. */
+    fun stream(t: Title, episode: Episode) {
+        val magnet = t.magnetFor(episode)
+        if (magnet == null) {
+            _streamUrl.value = null
+            _streamError.value = "Judul ini hanya metadata — belum ada sumber torrent untuk episode ini."
+            return
+        }
+        val streamId = if (t.playlist().size > 1) "${t.id}-ep${episode.number}" else t.id
+        viewModelScope.launch {
+            _streamUrl.value = null; _streamError.value = null
+            when (val r = engine.startStream(streamId, t.name, magnet)) {
+                is AppResult.Success -> _streamUrl.value = r.data
+                is AppResult.Failure -> _streamError.value = r.error.userMessage
+            }
+        }
     }
 
-    fun pause(id: String) = app.engine.pause(id)
-    fun resume(id: String) = app.engine.resume(id)
-    fun remove(id: String) = app.engine.remove(id)
+    fun download(t: Title) {
+        val magnet = t.magnet ?: return
+        viewModelScope.launch {
+            downloadQueueDao.add(DownloadQueueEntity(t.id, t.name, magnet, System.currentTimeMillis()))
+            when (val r = engine.startDownload(t.id, t.name, magnet)) {
+                is AppResult.Failure -> _streamError.value = r.error.userMessage
+                is AppResult.Success -> Unit
+            }
+        }
+    }
 
-    class Factory(private val app: FlixApp) : ViewModelProvider.Factory {
-        @Suppress("UNCHECKED_CAST")
-        override fun <T : ViewModel> create(modelClass: Class<T>) = MainViewModel(app) as T
+    private fun resumeQueuedDownloads() {
+        viewModelScope.launch {
+            runCatching { downloadQueueDao.all() }.getOrDefault(emptyList()).forEach { q ->
+                engine.startDownload(q.titleId, q.titleName, q.magnet)
+            }
+        }
+    }
+
+    fun saveProgress(t: Title, episode: Episode, positionMs: Long, durationMs: Long) {
+        if (durationMs <= 0) return
+        viewModelScope.launch {
+            historyDao.upsert(
+                WatchHistoryEntity(
+                    titleId = t.id, titleName = t.name, posterUrl = t.posterUrl,
+                    episodeNumber = episode.number, positionMs = positionMs,
+                    durationMs = durationMs, updatedAt = System.currentTimeMillis(),
+                )
+            )
+        }
+    }
+
+    suspend fun savedPosition(titleId: String): Long =
+        runCatching { historyDao.forTitle(titleId)?.positionMs ?: 0L }.getOrDefault(0L)
+
+    fun pause(id: String) = engine.pause(id)
+    fun resume(id: String) = engine.resume(id)
+    fun remove(id: String) {
+        engine.remove(id)
+        viewModelScope.launch { downloadQueueDao.remove(id) }
+    }
+
+    fun setTorrentSettings(settings: TorrentSettings) {
+        viewModelScope.launch { settingsRepo.setTorrent(settings) }
+    }
+
+    fun setPlayerSettings(settings: PlayerSettings) {
+        viewModelScope.launch { settingsRepo.setPlayer(settings) }
     }
 }
