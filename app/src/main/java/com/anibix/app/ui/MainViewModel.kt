@@ -19,6 +19,7 @@ import com.anibix.app.data.settings.TorrentSettings
 import com.anibix.app.torrent.TorrentEngine
 import com.anibix.app.torrent.TorrentState
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -72,6 +73,8 @@ class MainViewModel @Inject constructor(
     private val _streamError = MutableStateFlow<String?>(null)
     val streamError: StateFlow<String?> = _streamError.asStateFlow()
 
+    private var streamJob: Job? = null
+
     init {
         loadHome()
         resumeQueuedDownloads()
@@ -117,7 +120,8 @@ class MainViewModel @Inject constructor(
             return
         }
         val streamId = if (t.playlist().size > 1) "${t.id}-ep${episode.number}" else t.id
-        viewModelScope.launch {
+        streamJob?.cancel()
+        streamJob = viewModelScope.launch {
             _streamUrl.value = null; _streamError.value = null
             when (val r = engine.startStream(streamId, t.name, magnet)) {
                 is AppResult.Success -> _streamUrl.value = r.data
@@ -125,6 +129,15 @@ class MainViewModel @Inject constructor(
             }
         }
     }
+
+    /** Bersihkan keadaan stream (dipanggil saat pemutar dibuka / berpindah episode). */
+    fun resetStream() {
+        streamJob?.cancel()
+        _streamUrl.value = null
+        _streamError.value = null
+    }
+
+    fun failStream(message: String) { _streamUrl.value = null; _streamError.value = message }
 
     fun download(t: Title) {
         val magnet = t.magnet ?: return
@@ -157,6 +170,10 @@ class MainViewModel @Inject constructor(
             )
         }
     }
+
+    /** Riwayat tonton judul ini (satu baris per judul: berisi nomor episode + posisi). */
+    suspend fun savedProgress(titleId: String): WatchHistoryEntity? =
+        runCatching { historyDao.forTitle(titleId) }.getOrNull()
 
     suspend fun savedPosition(titleId: String): Long =
         runCatching { historyDao.forTitle(titleId)?.positionMs ?: 0L }.getOrDefault(0L)
