@@ -52,19 +52,26 @@ jobs:
           disable-animations: true
           emulator-options: -no-snapshot-save -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
           script: |
+            adb shell settings put secure immersive_mode_confirmations confirmed
             adb install -r app/build/outputs/apk/debug/app-debug.apk
             adb shell am start -n com.anibix.app/.MainActivity --es test_id "${{ inputs.title_id }}" --ei test_ep "${{ inputs.ep }}"
             sleep 25
             adb exec-out screencap -p > shot1.png
-            sleep 45
+            adb shell input tap 1200 160
+            sleep 3
             adb exec-out screencap -p > shot2.png
             sleep 60
+            adb shell input tap 1200 160
+            sleep 3
             adb exec-out screencap -p > shot3.png
             adb shell uiautomator dump /sdcard/ui.xml && adb pull /sdcard/ui.xml ui.xml
             sleep 90
+            adb shell input tap 1200 160
+            sleep 3
             adb exec-out screencap -p > shot4.png
             adb shell uiautomator dump /sdcard/ui2.xml && adb pull /sdcard/ui2.xml ui2.xml
             adb logcat -d > logcat.txt
+            adb shell dumpsys media.player > mediaplayer.txt || true
             adb shell dumpsys activity processes > processes.txt
 
       - name: Unggah bukti uji
@@ -76,6 +83,7 @@ jobs:
             shot*.png
             ui*.xml
             logcat.txt
+            mediaplayer.txt
             processes.txt
           if-no-files-found: warn
           retention-days: 7
