@@ -141,7 +141,7 @@ class LibTorrentEngine @Inject constructor(
             }
             if (!hasDiskSpace()) return@withContext AppResult.Failure(AppError.DiskFull())
             try {
-                val data = fetchMetadata(magnet)
+                val data = fetchMetadata(augmentTrackers(magnet))
                     ?: return@withContext AppResult.Failure(AppError.Timeout("metadata torrent"))
                 val ti = TorrentInfo.bdecode(data)
 
@@ -164,6 +164,19 @@ class LibTorrentEngine @Inject constructor(
                 for (i in 0 until files.numFiles()) {
                     found.filePriority(i, if (i == idx) Priority.NORMAL else Priority.IGNORE)
                 }
+                // Panaskan awal berkas: beri tenggat berjenjang pada kepingan
+                // pertama dan kepingan terakhir (info penutup), supaya data awal
+                // mengalir lebih dulu dan pemutar tidak lama menggantung.
+                runCatching {
+                    val pieceLen = ti.pieceLength().toLong()
+                    val firstPiece = (files.fileOffset(idx) / pieceLen).toInt()
+                    val lastPiece = ((files.fileOffset(idx) + files.fileSize(idx) - 1) / pieceLen).toInt()
+                    for (k in 0 until 12) {
+                        val piece = firstPiece + k
+                        if (piece <= lastPiece) found.setPieceDeadline(piece, k * 100)
+                    }
+                    found.setPieceDeadline(lastPiece, 0)
+                }
                 val src = StreamSource(found, ti, idx, File(downloadDir, files.filePath(idx)))
                 sources[id] = src
                 titles[id] = title
@@ -178,6 +191,31 @@ class LibTorrentEngine @Inject constructor(
      * 10-30 dtk hanya untuk bootstrap, jadi batas 30 dtk terlalu pendek.
      * Dua percobaan x 120 dtk; berhenti pada keberhasilan pertama.
      */
+    /**
+     * Tracker cadangan yang ditambahkan ke setiap magnet. Magnet katalog hanya
+     * membawa tracker bawaan rilisnya (umumnya semua UDP); daftar ini menambah
+     * tracker UDP keandalan tinggi plus jalur HTTP/HTTPS yang pengumumannya
+     * berjalan lewat TCP, berguna di jaringan seluler yang menyulitkan UDP.
+     */
+    private val extraTrackers = listOf(
+        "udp://tracker.openbittorrent.com:6969/announce",
+        "udp://tracker.leechers-paradise.org:6969/announce",
+        "udp://tracker.coppersurfer.tk:6969/announce",
+        "udp://tracker.pirateparty.gr:6969/announce",
+        "udp://tracker.internetwarriors.net:1337/announce",
+        "udp://tracker.cyberia.is:6969/announce",
+        "http://tracker.opentrackr.org:1337/announce",
+        "https://tracker.opentrackr.org:1337/announce",
+        "https://tracker.torrent.eu.org:451/announce",
+    )
+
+    private fun augmentTrackers(magnet: String): String {
+        val suffix = extraTrackers.joinToString("") {
+            "&tr=" + java.net.URLEncoder.encode(it, "UTF-8")
+        }
+        return magnet + suffix
+    }
+
     private fun fetchMetadata(magnet: String): ByteArray? {
         repeat(2) {
             val d = runCatching { session.fetchMagnet(magnet, 120) }.getOrNull()
