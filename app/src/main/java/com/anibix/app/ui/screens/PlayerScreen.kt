@@ -101,8 +101,15 @@ fun PlayerScreen(
     }
 
     LaunchedEffect(titleId, episodeNumber) {
-        title = vm.title(titleId)
-        title?.let { vm.stream(it, episode) }
+        val loaded = vm.title(titleId)
+        title = loaded
+        // Episode WAJIB diturunkan dari judul yang baru dimuat ini: memakai
+        // nilai `episode` hasil komposisi sebelumnya (judul masih null)
+        // menghasilkan Episode polos tanpa magnet per episode.
+        loaded?.let { t ->
+            val ep = t.playlist().firstOrNull { it.number == episodeNumber } ?: Episode(episodeNumber)
+            vm.stream(t, ep)
+        }
     }
 
     val player = remember { ExoPlayer.Builder(ctx).build() }

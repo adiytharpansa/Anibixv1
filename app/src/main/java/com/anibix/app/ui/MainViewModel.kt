@@ -106,7 +106,11 @@ class MainViewModel @Inject constructor(
 
     /** Minta URL stream untuk satu episode; hasilnya di [streamUrl]/[streamError]. */
     fun stream(t: Title, episode: Episode) {
-        val magnet = t.magnetFor(episode)
+        // Selesaikan episode ke entri daftar putar judul itu sendiri: pemanggil
+        // bisa saja menyerahkan Episode polos (tanpa magnet) hasil susunan UI,
+        // magnet per episode hanya ada di entri playlist judul.
+        val resolved = t.playlist().firstOrNull { it.number == episode.number } ?: episode
+        val magnet = t.magnetFor(resolved)
         if (magnet == null) {
             _streamUrl.value = null
             _streamError.value = "Judul ini hanya metadata — belum ada sumber torrent untuk episode ini."
