@@ -34,6 +34,12 @@ private fun sourceOf(result: AppResult<List<Category>>) = object : CatalogSource
     override suspend fun categories(): AppResult<List<Category>> = result
 }
 
+private fun supplementalOf(result: AppResult<List<Category>>) = object : CatalogSource {
+    override val name = "fake-pelengkap"
+    override val isSupplemental = true
+    override suspend fun categories(): AppResult<List<Category>> = result
+}
+
 private val sampleTitle = Title(id = "x", name = "X", synopsis = "", posterUrl = "", magnet = "magnet:?xt=urn:btih:abc")
 
 class CatalogRepositoryTest {
@@ -70,6 +76,32 @@ class CatalogRepositoryTest {
         val cats = repo.categories()
         assertEquals(listOf("Tersimpan"), cats.map { it.name })
         assertEquals("c1", cats[0].titles[0].id)
+    }
+
+    @Test
+    fun `sumber pelengkap memperkaya magnet judul utama dan sisa tampil sebagai kategori`() = runTest(dispatcher) {
+        val cache = FakeCacheDao()
+        val utama = Title(
+            id = "anilist-7", name = "Tujuh", synopsis = "s", posterUrl = "p",
+            anilistId = 7,
+            episodes = listOf(com.anibix.app.data.Episode(1), com.anibix.app.data.Episode(2)),
+        )
+        val pelengkap = utama.copy(
+            episodes = listOf(com.anibix.app.data.Episode(1, magnet = "m1")),
+        )
+        val sisa = Title(id = "anilist-9", name = "Sembilan", synopsis = "", posterUrl = "", magnet = "m9", anilistId = 9)
+        val repo = AggregatingCatalogRepository(
+            listOf(
+                sourceOf(AppResult.Success(listOf(Category("Tren", listOf(utama))))),
+                supplementalOf(AppResult.Success(listOf(Category("Bisa Diputar", listOf(pelengkap, sisa))))),
+            ),
+            cache, dispatchers
+        )
+        val cats = repo.categories()
+        assertEquals(listOf("Tren", "Bisa Diputar"), cats.map { it.name })
+        assertEquals("m1", cats[0].titles[0].episodes[0].magnet)
+        assertEquals(null, cats[0].titles[0].episodes[1].magnet)
+        assertEquals("anilist-9", cats[1].titles[0].id)
     }
 
     @Test

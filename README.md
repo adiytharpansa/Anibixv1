@@ -10,11 +10,17 @@ cache Room) → sumber data (AniList API / ekstensi / contoh) dan TorrentEngine
 - `core/` — `AppResult<T>` + `AppError` (pembungkus error seragam), `DispatcherProvider`.
 - `data/` — model `Title`/`Episode`/`Category`; `CatalogSource` yang bisa
   dipasang-copot (`AniListCatalogSource` = metadata, `SampleCatalogSource` =
-  contoh legal Blender); `AggregatingCatalogRepository` (network-first →
-  tulis cache Room → fallback cache → fallback contoh).
+  contoh legal Blender, `ScreaperCatalogSource` = pelengkap magnet);
+  `AggregatingCatalogRepository` (network-first → tulis cache Room →
+  fallback cache → fallback contoh). Sumber pelengkap (`isSupplemental`)
+  memperkaya judul utama ber-anilistId sama — untuk Screaper: magnet per
+  episode dari katalog screaperv1 (AniList + Nyaa.si) — dan judul pelengkap
+  tanpa padanan tampil sebagai kategori "Bisa Diputar".
 - `data/local/` — Room: cache katalog, riwayat tonton (Lanjutkan Menonton),
   bookmark (Daftarku), antrean unduhan persisten.
-- `data/remote/` — Retrofit + OkHttp + kotlinx.serialization ke AniList GraphQL.
+- `data/remote/` — Retrofit + OkHttp + kotlinx.serialization ke AniList
+  GraphQL; `ScreaperClient` membaca `catalog.json` screaperv1 lewat
+  cermin jsDelivr (3 pintu).
 - `data/settings/` — DataStore: pengaturan torrent & pemutar.
 - `torrent/` — `TorrentEngine` (interface) + `LibTorrentEngine` (jlibtorrent):
   sequential download, SettingsPack (DHT, LSD, UPnP, NAT-PMP, batas bandwidth,

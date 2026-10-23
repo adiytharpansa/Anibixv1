@@ -30,6 +30,14 @@ interface CatalogRepository {
  */
 interface CatalogSource {
     val name: String
+
+    /**
+     * Sumber pelengkap (bawaan: false) tidak menyediakan kategori utama —
+     * judulnya memperkaya judul utama yang id/anilistId-nya sama, dan yang
+     * tidak berpadanan tampil sebagai kategori tambahan di akhir.
+     */
+    val isSupplemental: Boolean get() = false
+
     suspend fun categories(): AppResult<List<Category>>
 }
 
@@ -113,9 +121,12 @@ class SampleCatalogSource @Inject constructor() : CatalogSource {
 }
 
 /**
- * Agregator katalog: network-first dari daftar [CatalogSource] berurutan,
- * jatuh ke cache Room bila semua sumber gagal, terakhir ke sumber contoh.
- * Hasil jaringan selalu ditulis ke cache agar kunjungan offline berikutnya utuh.
+ * Agregator katalog: network-first. Sumber utama pertama yang sukses menjadi
+ * katalog dasar; sumber pelengkap ([CatalogSource.isSupplemental]) memperkaya
+ * judul dasar dengan data tambahannya (mis. magnet per episode) dan judul
+ * pelengkap yang tidak berpadanan tampil sebagai kategori "Bisa Diputar".
+ * Semua sumber gagal -> jatuh ke cache Room. Hasil gabungan selalu ditulis
+ * ke cache agar kunjungan offline berikutnya utuh.
  */
 @Singleton
 class AggregatingCatalogRepository @Inject constructor(
@@ -125,24 +136,57 @@ class AggregatingCatalogRepository @Inject constructor(
 ) : CatalogRepository {
 
     override suspend fun categories(): List<Category> = withContext(dispatchers.io) {
+        var primary: List<Category>? = null
+        val supplemental = mutableListOf<Title>()
         for (source in sources) {
             val result = source.categories()
             if (result is AppResult.Success && result.data.isNotEmpty()) {
-                val now = System.currentTimeMillis()
-                runCatching {
-                    cache.upsertAll(result.data.flatMap { it.titles }.distinctBy { it.id }.map { it.toCachedEntity(now) })
+                if (source.isSupplemental) {
+                    supplemental += result.data.flatMap { it.titles }
+                } else if (primary == null) {
+                    primary = result.data
                 }
-                return@withContext result.data
             }
         }
-        val cached = runCatching { cache.all().map { it.toTitle() } }.getOrDefault(emptyList())
-        if (cached.isNotEmpty()) return@withContext listOf(Category("Tersimpan", cached))
-        emptyList()
+
+        if (primary == null && supplemental.isEmpty()) {
+            val cached = runCatching { cache.all().map { it.toTitle() } }.getOrDefault(emptyList())
+            return@withContext if (cached.isNotEmpty()) listOf(Category("Tersimpan", cached)) else emptyList()
+        }
+
+        val base = primary.orEmpty()
+        val primaryTitles = base.flatMap { it.titles }
+        val knownIds = primaryTitles.map { it.id }.toSet()
+        val knownAnilistIds = primaryTitles.mapNotNull { it.anilistId }.toSet()
+        val byId = supplemental.associateBy { it.id }
+        val byAnilistId = supplemental.filter { it.anilistId != null }.associateBy { it.anilistId }
+
+        val enriched = base.map { category ->
+            category.copy(titles = category.titles.map { title ->
+                title.enrichedWith(byAnilistId[title.anilistId] ?: byId[title.id])
+            })
+        }
+        val leftovers = supplemental.filter {
+            it.id !in knownIds && (it.anilistId == null || it.anilistId !in knownAnilistIds)
+        }.distinctBy { it.id }
+        val merged = enriched + if (leftovers.isNotEmpty()) {
+            listOf(Category("Bisa Diputar", leftovers))
+        } else {
+            emptyList()
+        }
+
+        val now = System.currentTimeMillis()
+        runCatching {
+            cache.upsertAll(merged.flatMap { it.titles }.distinctBy { it.id }.map { it.toCachedEntity(now) })
+        }
+        merged
     }
 
     override suspend fun title(id: String): Title? = withContext(dispatchers.io) {
-        runCatching { cache.byId(id)?.toTitle() }.getOrNull()
-            ?: categories().flatMap { it.titles }.firstOrNull { it.id == id }
+        // Katalog jaringan (sudah diperkaya) didahulukan; cache hanya cadangan
+        // agar salinan cache yang belum diperkaya tidak menutupi data jaringan.
+        categories().flatMap { it.titles }.firstOrNull { it.id == id }
+            ?: runCatching { cache.byId(id)?.toTitle() }.getOrNull()
     }
 }
 

@@ -9,6 +9,7 @@ import com.anibix.app.data.AniListCatalogSource
 import com.anibix.app.data.CatalogRepository
 import com.anibix.app.data.CatalogSource
 import com.anibix.app.data.SampleCatalogSource
+import com.anibix.app.data.ScreaperCatalogSource
 import com.anibix.app.data.local.AnibixDatabase
 import com.anibix.app.data.local.BookmarkDao
 import com.anibix.app.data.local.CachedTitleDao
@@ -42,11 +43,15 @@ object AppModule {
     @Singleton
     fun torrentEngine(engine: LibTorrentEngine): TorrentEngine = engine
 
-    // Urutan = prioritas: metadata AniList dulu, contoh legal sebagai fallback bawaan.
+    // Urutan = prioritas: metadata AniList sebagai katalog utama, Screaper
+    // sebagai pelengkap magnet per episode, contoh legal fallback terakhir.
     @Provides
     @Singleton
-    fun catalogSources(anilist: AniListCatalogSource, sample: SampleCatalogSource): List<CatalogSource> =
-        listOf(anilist, sample)
+    fun catalogSources(
+        anilist: AniListCatalogSource,
+        screaper: ScreaperCatalogSource,
+        sample: SampleCatalogSource,
+    ): List<CatalogSource> = listOf(anilist, screaper, sample)
 
     @Provides
     @Singleton
