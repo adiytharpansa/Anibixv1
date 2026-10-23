@@ -11,7 +11,7 @@ android {
     namespace = "com.anibix.app"
     compileSdk = 35
     defaultConfig {
-        applicationId = "com.anibix.app"
+        applicationId = "com.anibix.anime"
         minSdk = 24
         targetSdk = 35
         versionCode = 2
