@@ -17,6 +17,23 @@ android {
         versionCode = 2
         versionName = "0.2"
     }
+    // Tanda tangan debug TETAP dari keystore repo: semua build CI memakai
+    // kunci yang sama, jadi APK hasil build bisa menimpa pemasangan lama.
+    // Ini kunci DEBUG (bukan kunci rilis) — jangan dipakai untuk publikasi.
+    signingConfigs {
+        create("stableDebug") {
+            storeFile = rootProject.file("debug.keystore")
+            storePassword = "android"
+            keyAlias = "androiddebugkey"
+            keyPassword = "android"
+            storeType = "PKCS12"
+        }
+    }
+    buildTypes {
+        debug {
+            signingConfig = signingConfigs.getByName("stableDebug")
+        }
+    }
     buildFeatures { compose = true }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
