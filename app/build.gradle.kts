@@ -21,17 +21,14 @@ android {
     // kunci yang sama, jadi APK hasil build bisa menimpa pemasangan lama.
     // Ini kunci DEBUG (bukan kunci rilis) — jangan dipakai untuk publikasi.
     signingConfigs {
-        create("stableDebug") {
+        // Timpa ISI konfigurasi "debug" bawaan: build type debug sudah
+        // menunjuk ke sini, jadi mengganti field-nya pasti mengganti kunci.
+        getByName("debug") {
             storeFile = rootProject.file("debug.keystore")
             storePassword = "android"
             keyAlias = "androiddebugkey"
             keyPassword = "android"
             storeType = "PKCS12"
-        }
-    }
-    buildTypes {
-        debug {
-            signingConfig = signingConfigs.getByName("stableDebug")
         }
     }
     buildFeatures { compose = true }
