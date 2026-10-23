@@ -4,6 +4,7 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.core.tween
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
@@ -18,9 +19,14 @@ import com.anibix.app.ui.screens.PlayerScreen
 import com.anibix.app.ui.screens.SettingsScreen
 
 @Composable
-fun FlixNavHost() {
+fun FlixNavHost(startRoute: String? = null) {
     val nav = rememberNavController()
     val vm: MainViewModel = hiltViewModel()
+
+    // Rute awal dari kait uji (extra intent); null pada pemakaian normal.
+    LaunchedEffect(startRoute) {
+        if (startRoute != null) nav.navigate(startRoute)
+    }
 
     NavHost(
         nav, startDestination = "home",

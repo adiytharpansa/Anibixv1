@@ -19,6 +19,11 @@ class MainActivity : ComponentActivity() {
             statusBarStyle = SystemBarStyle.dark(Color.TRANSPARENT),
             navigationBarStyle = SystemBarStyle.dark(Color.TRANSPARENT)
         )
-        setContent { FlixTheme { FlixNavHost() } }
+        // Kait uji otomatis (dipakai workflow emulator-test): extra test_id/test_ep
+        // membuka pemutar langsung. Tidak berpengaruh pada pemakaian normal.
+        val testId = intent?.getStringExtra("test_id")
+        val testEp = intent?.getIntExtra("test_ep", 1) ?: 1
+        val startRoute = testId?.let { "player/$it/$testEp" }
+        setContent { FlixTheme { FlixNavHost(startRoute = startRoute) } }
     }
 }
