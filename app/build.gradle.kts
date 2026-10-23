@@ -20,17 +20,9 @@ android {
     // Tanda tangan debug TETAP dari keystore repo: semua build CI memakai
     // kunci yang sama, jadi APK hasil build bisa menimpa pemasangan lama.
     // Ini kunci DEBUG (bukan kunci rilis) — jangan dipakai untuk publikasi.
-    signingConfigs {
-        // Timpa ISI konfigurasi "debug" bawaan: build type debug sudah
-        // menunjuk ke sini, jadi mengganti field-nya pasti mengganti kunci.
-        getByName("debug") {
-            storeFile = rootProject.file("debug.keystore")
-            storePassword = "android"
-            keyAlias = "androiddebugkey"
-            keyPassword = "android"
-            storeType = "PKCS12"
-        }
-    }
+    // Tanda tangan debug tetap TIDAK diatur di sini: konfigurasi signing
+    // Gradle terbukti tidak mengubah kunci hasil build di CI. Penandatanganan
+    // ulang dengan debug.keystore repo dilakukan workflow (apksigner).
     buildFeatures { compose = true }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
