@@ -120,6 +120,10 @@ class SampleCatalogSource @Inject constructor() : CatalogSource {
     )
 }
 
+/** Bisa di-stream + diunduh: punya magnet judul (film) atau magnet per episode (serial). */
+private fun Title.isPlayable(): Boolean =
+    magnet != null || episodes.any { it.magnet != null }
+
 /**
  * Agregator katalog: network-first. Sumber utama pertama yang sukses menjadi
  * katalog dasar; sumber pelengkap ([CatalogSource.isSupplemental]) memperkaya
@@ -179,7 +183,12 @@ class AggregatingCatalogRepository @Inject constructor(
         runCatching {
             cache.upsertAll(merged.flatMap { it.titles }.distinctBy { it.id }.map { it.toCachedEntity(now) })
         }
-        merged
+        // Gerbang tampil (aturan user): yang tampil di aplikasi HANYA judul
+        // yang benar-benar bisa di-stream dan diunduh (punya magnet judul
+        // atau magnet per episode). Judul metadata saja tidak ditampilkan.
+        merged.map { category ->
+            category.copy(titles = category.titles.filter { it.isPlayable() })
+        }.filter { it.titles.isNotEmpty() }
     }
 
     override suspend fun title(id: String): Title? = withContext(dispatchers.io) {

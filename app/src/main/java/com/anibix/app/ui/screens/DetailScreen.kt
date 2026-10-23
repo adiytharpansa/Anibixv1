@@ -51,7 +51,17 @@ fun DetailScreen(vm: MainViewModel, id: String, onPlay: (String, Int) -> Unit, o
         return
     }
     val bookmarked by vm.isBookmarked(t.id).collectAsState(initial = false)
-    val dl = downloads.firstOrNull { it.id == t.id }
+    // Keadaan unduhan judul ini: film = satu entri; serial = gabungan entri
+    // per episode ("<id>-ep<n>") — progres dirata-rata, selesai bila semua selesai.
+    val dlStates = downloads.filter { it.id == t.id || it.id.startsWith("${t.id}-ep") }
+    val dl = when {
+        dlStates.isEmpty() -> null
+        dlStates.size == 1 -> dlStates.first()
+        else -> dlStates.first().copy(
+            progress = dlStates.map { it.progress }.average().toFloat(),
+            finished = dlStates.all { it.finished },
+        )
+    }
     val playlist = t.playlist()
     val isSeries = playlist.size > 1
 

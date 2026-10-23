@@ -140,12 +140,24 @@ class MainViewModel @Inject constructor(
     fun failStream(message: String) { _streamUrl.value = null; _streamError.value = message }
 
     fun download(t: Title) {
-        val magnet = t.magnet ?: return
+        // Film: satu unduhan dari magnet judul. Serial: antrekan SETIAP episode
+        // yang bermagnet dengan id "<id judul>-ep<n>" (konsisten dengan id
+        // stream pemutar), supaya tombol Download serial benar-benar mengunduh
+        // — sebelumnya serial diam saja karena magnet judulnya kosong.
+        val jobs: List<Triple<String, String, String>> = if (t.magnet != null) {
+            listOf(Triple(t.id, t.name, t.magnet!!))
+        } else {
+            t.playlist().filter { it.magnet != null }
+                .map { Triple("${t.id}-ep${it.number}", "${t.name} E${it.number}", it.magnet!!) }
+        }
+        if (jobs.isEmpty()) return
         viewModelScope.launch {
-            downloadQueueDao.add(DownloadQueueEntity(t.id, t.name, magnet, System.currentTimeMillis()))
-            when (val r = engine.startDownload(t.id, t.name, magnet)) {
-                is AppResult.Failure -> _streamError.value = r.error.userMessage
-                is AppResult.Success -> Unit
+            for ((dlId, dlName, magnet) in jobs) {
+                downloadQueueDao.add(DownloadQueueEntity(dlId, dlName, magnet, System.currentTimeMillis()))
+                when (val r = engine.startDownload(dlId, dlName, magnet)) {
+                    is AppResult.Failure -> _streamError.value = r.error.userMessage
+                    is AppResult.Success -> Unit
+                }
             }
         }
     }
