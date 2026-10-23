@@ -37,6 +37,30 @@ jobs:
       - name: Build debug APK
         run: gradle :app:assembleDebug --stacktrace
 
+      - name: Probe magnet yang sama dari jaringan runner (aria2, di luar emulator)
+        continue-on-error: true
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq aria2 > /dev/null 2>&1 || true
+          MAGNET=$(curl -s "https://cdn.jsdelivr.net/gh/adiytharpansa/screaperv1@main/output/catalog.json" | python3 -c "
+          import json, sys
+          data = json.load(sys.stdin)
+          for e in data:
+              if e['anilistId'] == 113415:
+                  for ep in e['torrents']['episodes']:
+                      if ep['episode'] == 1:
+                          print(ep['magnet']); break
+          ")
+          echo "magnet diperoleh: ${MAGNET:0:60}..."
+          mkdir -p /tmp/probe
+          timeout 150 aria2c --bt-metadata-only=true --bt-save-metadata=true --seed-time=0 \
+            --bt-timeout=100 --connect-timeout=15 -d /tmp/probe "$MAGNET" || true
+          if ls /tmp/probe/*.torrent > /dev/null 2>&1; then
+            echo "PROBE_METADATA_OK" | tee probe.txt
+          else
+            echo "PROBE_METADATA_GAGAL" | tee probe.txt
+          fi
+          ls -la /tmp/probe || true
+
       - name: Aktifkan KVM
         run: |
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
@@ -55,12 +79,12 @@ jobs:
             adb shell settings put secure immersive_mode_confirmations confirmed
             adb install -r app/build/outputs/apk/debug/app-debug.apk
             adb shell am start -n com.anibix.app/.MainActivity --es test_id "${{ inputs.title_id }}" --ei test_ep "${{ inputs.ep }}"
-            sleep 25
+            sleep 30
             adb exec-out screencap -p > shot1.png
             adb shell input tap 1200 160
             sleep 3
             adb exec-out screencap -p > shot2.png
-            sleep 60
+            sleep 80
             adb shell input tap 1200 160
             sleep 3
             adb exec-out screencap -p > shot3.png
@@ -69,6 +93,8 @@ jobs:
             adb shell input tap 1200 160
             sleep 3
             adb exec-out screencap -p > shot4.png
+            sleep 60
+            adb exec-out screencap -p > shot5.png
             adb shell uiautomator dump /sdcard/ui2.xml && adb pull /sdcard/ui2.xml ui2.xml
             adb logcat -d > logcat.txt
             adb shell dumpsys media.player > mediaplayer.txt || true
@@ -85,6 +111,7 @@ jobs:
             logcat.txt
             mediaplayer.txt
             processes.txt
+            probe.txt
           if-no-files-found: warn
           retention-days: 7
 

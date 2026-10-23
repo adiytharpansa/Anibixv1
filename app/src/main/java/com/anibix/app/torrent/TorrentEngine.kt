@@ -86,6 +86,10 @@ class LibTorrentEngine @Inject constructor(
 
     override fun start() {
         if (!session.isRunning) session.start()
+        // DHT langsung dinyalakan di sini (bawaan aktif): jangan menunggu aliran
+        // pengaturan — fetchMagnet yang keburu jalan tanpa DHT hanya bergantung
+        // pada tracker dan jauh lebih mudah kehabisan waktu.
+        runCatching { session.startDht() }
         // Terapkan pengaturan pengguna setiap kali berubah (DHT, throttle, dst.)
         scope.launch {
             settingsRepo.torrentSettings.collect { applySettings(it) }
@@ -137,7 +141,7 @@ class LibTorrentEngine @Inject constructor(
             }
             if (!hasDiskSpace()) return@withContext AppResult.Failure(AppError.DiskFull())
             try {
-                val data = session.fetchMagnet(magnet, 30)
+                val data = fetchMetadata(magnet)
                     ?: return@withContext AppResult.Failure(AppError.Timeout("metadata torrent"))
                 val ti = TorrentInfo.bdecode(data)
 
@@ -168,6 +172,19 @@ class LibTorrentEngine @Inject constructor(
                 AppResult.Failure(AppError.Torrent(e.message))
             }
         }
+
+    /**
+     * Ambil metadata magnet dengan sabar: DHT yang baru mulai bisa butuh
+     * 10-30 dtk hanya untuk bootstrap, jadi batas 30 dtk terlalu pendek.
+     * Dua percobaan x 120 dtk; berhenti pada keberhasilan pertama.
+     */
+    private fun fetchMetadata(magnet: String): ByteArray? {
+        repeat(2) {
+            val d = runCatching { session.fetchMagnet(magnet, 120) }.getOrNull()
+            if (d != null) return d
+        }
+        return null
+    }
 
     override suspend fun startStream(id: String, title: String, magnet: String): AppResult<String> =
         when (val r = add(id, title, magnet, sequential = true)) {
